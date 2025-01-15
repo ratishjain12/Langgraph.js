@@ -1,4 +1,3 @@
-import { OpenAIEmbeddings } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { AIMessage, BaseMessage, HumanMessage } from "@langchain/core/messages";
 import {
@@ -7,19 +6,29 @@ import {
 } from "@langchain/core/prompts";
 import { StateGraph } from "@langchain/langgraph";
 import { Annotation } from "@langchain/langgraph";
-import { tool } from "@langchain/core/tools";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { MongoDBSaver } from "@langchain/langgraph-checkpoint-mongodb";
-import { MongoDBAtlasVectorSearch } from "@langchain/mongodb";
 import { MongoClient } from "mongodb";
-import { z } from "zod";
 import "dotenv/config";
+import { createEmployeeLookupTool, createEmployeeRenameTool } from "./tools";
 
-export async function callAgent(client: MongoClient, query: string, thread_id: string) {
+const client = new MongoClient(process.env.MONGODB_ATLAS_URI as string);
+const collection = client.db("hr_database").collection("employees");
+const dbName = "hr_database";
+
+const dbConfig = {
+  collection,
+  indexName: "vector_index",
+  textKey: "embedding_text",
+  embeddingKey: "embedding",
+};
+
+export async function callAgent(
+  client: MongoClient,
+  query: string,
+  thread_id: string
+) {
   // Define the MongoDB database and collection
-  const dbName = "hr_database";
-  const db = client.db(dbName);
-  const collection = db.collection("employees");
 
   // Define the graph state
   const GraphState = Annotation.Root({
@@ -29,42 +38,12 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
   });
 
   // Define the tools for the agent to use
-  const employeeLookupTool = tool(
-    async ({ query, n = 10 }) => {
-      console.log("Employee lookup tool called");
+  const employeeLookUpTool = createEmployeeLookupTool(dbConfig);
 
-      const dbConfig = {
-        collection: collection,
-        indexName: "vector_index",
-        textKey: "embedding_text",
-        embeddingKey: "embedding",
-      };
+  const renameEmployeeTool = createEmployeeRenameTool(dbConfig);
 
-      // Initialize vector store
-      const vectorStore = new MongoDBAtlasVectorSearch(
-        new OpenAIEmbeddings(),
-        dbConfig
-      );
+  const tools = [employeeLookUpTool, renameEmployeeTool];
 
-      const result = await vectorStore.similaritySearchWithScore(query, n);
-      return JSON.stringify(result);
-    },
-    {
-      name: "employee_lookup",
-      description: "Gathers employee details from the HR database",
-      schema: z.object({
-        query: z.string().describe("The search query"),
-        n: z
-          .number()
-          .optional()
-          .default(10)
-          .describe("Number of results to return"),
-      }),
-    }
-  );
-
-  const tools = [employeeLookupTool];
-  
   // We can extract the state typing via `GraphState.State`
   const toolNode = new ToolNode<typeof GraphState.State>(tools);
 
@@ -91,7 +70,7 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
     const prompt = ChatPromptTemplate.fromMessages([
       [
         "system",
-        `You are a helpful AI assistant, collaborating with other assistants. Use the provided tools to progress towards answering the question. If you are unable to fully answer, that's OK, another assistant with different tools will help where you left off. Execute what you can to make progress. If you or any of the other assistants have the final answer or deliverable, prefix your response with FINAL ANSWER so the team knows to stop. You have access to the following tools: {tool_names}.\n{system_message}\nCurrent time: {time}.`,
+        `You are a helpful AI assistant, collaborating with other assistants. Use the provided tools to progress towards answering the question and perform database operations. If you are unable to fully answer, that's OK, another assistant with different tools will help where you left off. Execute what you can to make progress. If you or any of the other assistants have the final answer or deliverable, prefix your response with FINAL ANSWER so the team knows to stop. You have access to the following tools: {tool_names}.\n{system_message}\nCurrent time: {time}.`,
       ],
       new MessagesPlaceholder("messages"),
     ]);

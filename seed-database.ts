@@ -101,22 +101,24 @@ async function seedDatabase(): Promise<void> {
   try {
     await client.connect();
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
 
     const db = client.db("hr_database");
     const collection = db.collection("employees");
 
     await collection.deleteMany({});
-    
+
     const syntheticData = await generateSyntheticData();
 
     const recordsWithSummaries = await Promise.all(
       syntheticData.map(async (record) => ({
         pageContent: await createEmployeeSummary(record),
-        metadata: {...record},
+        metadata: { ...record },
       }))
     );
-    
+
     for (const record of recordsWithSummaries) {
       await MongoDBAtlasVectorSearch.fromDocuments(
         [record],
@@ -129,11 +131,13 @@ async function seedDatabase(): Promise<void> {
         }
       );
 
-      console.log("Successfully processed & saved record:", record.metadata.employee_id);
+      console.log(
+        "Successfully processed & saved record:",
+        record.metadata.employee_id
+      );
     }
 
     console.log("Database seeding completed");
-
   } catch (error) {
     console.error("Error seeding database:", error);
   } finally {
