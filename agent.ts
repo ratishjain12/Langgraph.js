@@ -4,17 +4,20 @@ import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
-import { StateGraph } from "@langchain/langgraph";
-import { Annotation } from "@langchain/langgraph";
+import { StateGraph, Annotation } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { MongoDBSaver } from "@langchain/langgraph-checkpoint-mongodb";
 import { MongoClient } from "mongodb";
 import "dotenv/config";
 import {
+  createCrudTool,
   createEmployeeLookupTool,
   createEmployeeRenameTool,
   createSendEmailTool,
 } from "./tools";
+import { StructuredOutputParser } from "@langchain/core/output_parsers";
+import { z } from "zod";
+import { EmployeeSchema } from "./schema";
 
 const client = new MongoClient(process.env.MONGODB_ATLAS_URI as string);
 const collection = client.db("hr_database").collection("employees");
@@ -32,8 +35,6 @@ export async function callAgent(
   query: string,
   thread_id: string
 ) {
-  // Define the MongoDB database and collection
-
   // Define the graph state
   const GraphState = Annotation.Root({
     messages: Annotation<BaseMessage[]>({
@@ -48,7 +49,14 @@ export async function callAgent(
 
   const sendEmailTool = createSendEmailTool(dbConfig);
 
-  const tools = [employeeLookUpTool, renameEmployeeTool, sendEmailTool];
+  const crudTool = createCrudTool(dbConfig);
+
+  const tools = [
+    employeeLookUpTool,
+    renameEmployeeTool,
+    sendEmailTool,
+    crudTool,
+  ];
 
   // We can extract the state typing via `GraphState.State`
   const toolNode = new ToolNode<typeof GraphState.State>(tools);
@@ -76,16 +84,21 @@ export async function callAgent(
     const prompt = ChatPromptTemplate.fromMessages([
       [
         "system",
-        `You are a helpful AI assistant, collaborating with other assistants. Use the provided tools to progress towards answering the question, perform database operations and send emails to employees. If you are unable to fully answer, that's OK, another assistant with different tools will help where you left off. Execute what you can to make progress. If you or any of the other assistants have the final answer or deliverable, prefix your response with FINAL ANSWER so the team knows to stop. You have access to the following tools: {tool_names}.\n{system_message}\nCurrent time: {time}.`,
+        `You are a helpful AI assistant, collaborating with other assistants. Use the provided tools to progress towards answering the question, perform crud database operations and can send emails to employees whenever asked to, no need to send emails for every task. If you are unable to fully answer, that's OK, another assistant with different tools will help where you left off. Execute what you can to make progress. If you or any of the other assistants have the final answer or deliverable, prefix your response with FINAL ANSWER so the team knows to stop. You have access to the following tools: {tool_names}.\n{system_message}\nCurrent time: {time}. db schema {schema}, if user asks to create a dummy data then create a dummy data based on schema use the crud tool`,
       ],
       new MessagesPlaceholder("messages"),
     ]);
+
+    const parser = StructuredOutputParser.fromZodSchema(
+      z.array(EmployeeSchema)
+    );
 
     const formattedPrompt = await prompt.formatMessages({
       system_message: "You are helpful HR Chatbot Agent.",
       time: new Date().toISOString(),
       tool_names: tools.map((tool) => tool.name).join(", "),
       messages: state.messages,
+      schema: parser.getFormatInstructions(),
     });
 
     const result = await model.invoke(formattedPrompt);

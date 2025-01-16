@@ -163,3 +163,97 @@ export const createSendEmailTool = (dbConfig: dbConfigProps) =>
       }),
     }
   );
+
+export const createCrudTool = (dbConfig: dbConfigProps) =>
+  tool(
+    async ({
+      employee_id,
+      action,
+      data,
+    }: {
+      employee_id: string;
+      action: string;
+      data?: object;
+    }) => {
+      console.log("CRUD tool called");
+      console.log("actions: ", action);
+
+      console.log("data: ", data);
+
+      try {
+        switch (action.toLowerCase()) {
+          // Create a new employee record
+          case "create": {
+            if (!data) {
+              return "Data is required for creating a new employee.";
+            }
+            const result = await dbConfig.collection.insertOne(data);
+            return result?.acknowledged
+              ? `Employee created successfully with ID: ${result.insertedId}`
+              : "Failed to create employee.";
+          }
+
+          // Read an employee record by ID
+          case "read": {
+            const employee = await dbConfig.collection.findOne({
+              employee_id,
+            });
+            return employee
+              ? JSON.stringify(employee)
+              : `No employee found with ID: ${employee_id}`;
+          }
+
+          // Update an employee record
+          case "update": {
+            if (!data) {
+              return "Data is required for updating an employee.";
+            }
+            const result = await dbConfig.collection.updateOne(
+              { employee_id },
+              { $set: data }
+            );
+            return result.modifiedCount === 1
+              ? `Employee with ID ${employee_id} updated successfully.`
+              : `Failed to update employee with ID ${employee_id}.`;
+          }
+
+          // Delete an employee record
+          case "delete": {
+            const result = await dbConfig.collection.deleteOne({
+              employee_id,
+            });
+            return result.deletedCount === 1
+              ? `Employee with ID ${employee_id} deleted successfully.`
+              : `Failed to delete employee with ID ${employee_id}.`;
+          }
+
+          // Invalid action
+          default:
+            return `Invalid action "${action}". Valid actions are: create, read, update, delete.`;
+        }
+      } catch (error) {
+        console.error("Error in CRUD tool:", error);
+        return `An error occurred while performing the "${action}"`;
+      }
+    },
+    {
+      name: "crud_tool",
+      description: "Performs CRUD operations on the employee database.",
+      schema: z.object({
+        employee_id: z
+          .string()
+          .describe("The unique identifier of the employee in the database."),
+        action: z
+          .string()
+          .describe(
+            'The action to perform: "create", "read", "update", or "delete".'
+          ),
+        data: z
+          .record(z.any())
+          .optional()
+          .describe(
+            "The data to use for creation or updates (optional for read and delete)."
+          ),
+      }),
+    }
+  );

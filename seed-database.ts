@@ -12,7 +12,7 @@ const llm = new ChatOpenAI({
   temperature: 0.7,
 });
 
-const EmployeeSchema = z.object({
+export const EmployeeSchema = z.object({
   employee_id: z.string(),
   first_name: z.string(),
   last_name: z.string(),
@@ -62,7 +62,7 @@ const EmployeeSchema = z.object({
   notes: z.string(),
 });
 
-type Employee = z.infer<typeof EmployeeSchema>;
+export type Employee = z.infer<typeof EmployeeSchema>;
 
 const parser = StructuredOutputParser.fromZodSchema(z.array(EmployeeSchema));
 
