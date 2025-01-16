@@ -10,7 +10,11 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { MongoDBSaver } from "@langchain/langgraph-checkpoint-mongodb";
 import { MongoClient } from "mongodb";
 import "dotenv/config";
-import { createEmployeeLookupTool, createEmployeeRenameTool } from "./tools";
+import {
+  createEmployeeLookupTool,
+  createEmployeeRenameTool,
+  createSendEmailTool,
+} from "./tools";
 
 const client = new MongoClient(process.env.MONGODB_ATLAS_URI as string);
 const collection = client.db("hr_database").collection("employees");
@@ -42,7 +46,9 @@ export async function callAgent(
 
   const renameEmployeeTool = createEmployeeRenameTool(dbConfig);
 
-  const tools = [employeeLookUpTool, renameEmployeeTool];
+  const sendEmailTool = createSendEmailTool(dbConfig);
+
+  const tools = [employeeLookUpTool, renameEmployeeTool, sendEmailTool];
 
   // We can extract the state typing via `GraphState.State`
   const toolNode = new ToolNode<typeof GraphState.State>(tools);
@@ -70,7 +76,7 @@ export async function callAgent(
     const prompt = ChatPromptTemplate.fromMessages([
       [
         "system",
-        `You are a helpful AI assistant, collaborating with other assistants. Use the provided tools to progress towards answering the question and perform database operations. If you are unable to fully answer, that's OK, another assistant with different tools will help where you left off. Execute what you can to make progress. If you or any of the other assistants have the final answer or deliverable, prefix your response with FINAL ANSWER so the team knows to stop. You have access to the following tools: {tool_names}.\n{system_message}\nCurrent time: {time}.`,
+        `You are a helpful AI assistant, collaborating with other assistants. Use the provided tools to progress towards answering the question, perform database operations and send emails to employees. If you are unable to fully answer, that's OK, another assistant with different tools will help where you left off. Execute what you can to make progress. If you or any of the other assistants have the final answer or deliverable, prefix your response with FINAL ANSWER so the team knows to stop. You have access to the following tools: {tool_names}.\n{system_message}\nCurrent time: {time}.`,
       ],
       new MessagesPlaceholder("messages"),
     ]);

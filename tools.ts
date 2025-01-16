@@ -2,15 +2,16 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import { tool } from "@langchain/core/tools";
 import { MongoDBAtlasVectorSearch } from "@langchain/mongodb";
 import { z } from "zod";
-import { parseFullName } from "./util";
+import { parseFullName, sendEmail } from "./util";
 
-// Function to create the employee lookup tool
-export const createEmployeeLookupTool = (dbConfig: {
+interface dbConfigProps {
   collection: any;
   indexName: string;
   textKey: string;
   embeddingKey: string;
-}) =>
+}
+// Function to create the employee lookup tool
+export const createEmployeeLookupTool = (dbConfig: dbConfigProps) =>
   tool(
     async ({ query, n = 10 }) => {
       console.log("Employee lookup tool called");
@@ -39,12 +40,7 @@ export const createEmployeeLookupTool = (dbConfig: {
   );
 
 // Function to rename the employee name
-export const createEmployeeRenameTool = (dbConfig: {
-  collection: any;
-  indexName: string;
-  textKey: string;
-  embeddingKey: string;
-}) =>
+export const createEmployeeRenameTool = (dbConfig: dbConfigProps) =>
   tool(
     async ({ employee_name, new_name }) => {
       console.log("Rename employee tool called");
@@ -107,6 +103,63 @@ export const createEmployeeRenameTool = (dbConfig: {
           .string()
           .describe("The current full name of the employee."),
         new_name: z.string().describe("The new full name for the employee."),
+      }),
+    }
+  );
+
+export const createSendEmailTool = (dbConfig: dbConfigProps) =>
+  tool(
+    async ({
+      name,
+      subject,
+      body,
+    }: {
+      name: string;
+      subject: string;
+      body: string;
+    }) => {
+      try {
+        // Query the database for the employee's contact details
+        const employee = await dbConfig.collection.findOne(
+          {
+            first_name: { $regex: new RegExp(`^${name}$`, "i") }, // Case-insensitive name search
+          },
+          {
+            projection: { "contact_details.email": 1 }, // Include only the email field
+          }
+        );
+
+        if (!employee || !employee.contact_details?.email) {
+          return `No employee found with the name "${name}" or email not available.`;
+        }
+
+        // Extract email from the result
+        const employeeEmail = employee.contact_details.email;
+
+        // Send email
+        const info = await sendEmail({
+          to: employeeEmail,
+          subject,
+          text: body,
+        });
+
+        if (info?.accepted && info?.accepted?.length > 0) {
+          return `Email sent successfully to ${employeeEmail}`;
+        } else {
+          return "Failed to send email. Please check the email details and try again.";
+        }
+      } catch (error) {
+        console.error("Error while sending email:", error);
+        return "An error occurred while sending the email. Please try again later.";
+      }
+    },
+    {
+      name: "send_email",
+      description: "Sends an email to an employee based on their first name",
+      schema: z.object({
+        name: z.string().describe("The first name of the employee."),
+        subject: z.string().describe("The subject of the email."),
+        body: z.string().describe("The body of the email."),
       }),
     }
   );
